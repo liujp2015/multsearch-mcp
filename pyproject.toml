@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multsearch-mcp"
+version = "0.2.1"
+description = "multsearch MCP — dual-path web search (Tavily/Firecrawl + LLM summarize, plus Gemini Google grounding) for Claude Code"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastmcp>=2.3.0",
+    "httpx[socks]>=0.28.0",
+    "mcp[cli]>=1.21.2",
+    "tenacity>=8.0.0",
+]
+
+[project.optional-dependencies]
+setup = [
+    "questionary>=2.0.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+multsearch = "multsearch.server:main"
+multsearch-setup = "multsearch.setup_wizard:main"

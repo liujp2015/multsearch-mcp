@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Caches
+.uv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs / runtime
+logs/
+*.log
+
+# Secrets — never commit real env files (.env.example is the template)
+.env
+.env.local
+.env.*.local
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
