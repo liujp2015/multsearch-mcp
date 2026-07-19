@@ -20,14 +20,14 @@
 
 | 路径 | 工具 | 索引来源 | 模型 |
 | --- | --- | --- | --- |
-| **Path A** | `web_search` | Tavily + Firecrawl 找源 | LLM 基于信源 summarize（默认火山方舟 Ark `glm-5.2`） |
+| **Path A** | `web_search` | Tavily + Firecrawl + SearXNG 找源 | LLM 基于信源 summarize（默认火山方舟 Ark `glm-5.2`） |
 | **Path B** | `gemini_search` | Google Search grounding | Gemini 2.5 Flash |
 
-两条路用的是**完全不同的索引**（Tavily/Firecrawl vs Google），所以适合对关键事实做双路交叉验证。除此之外还有网页抓取 / 站点扫描 / 信源回查 / 配置诊断工具。
+两条路用的是**完全不同的索引**（Tavily/Firecrawl/SearXNG vs Google），所以适合对关键事实做双路交叉验证。除此之外还有网页抓取 / 站点扫描 / 信源回查 / 配置诊断工具。
 
 | 工具 | 它干什么 |
 | --- | --- |
-| `web_search` | Tavily + Firecrawl 并行找源 → LLM 综合成带 `[编号]` 内联引用的答案（Path A） |
+| `web_search` | Tavily + Firecrawl + SearXNG 并行找源 → LLM 综合成带 `[编号]` 内联引用的答案（Path A） |
 | `gemini_search` | Gemini + Google grounding 直接给 grounded 答案 + Google 引用（Path B） |
 | `get_sources` | 用 `web_search` / `gemini_search` 返回的 `session_id` 取回完整信源列表 |
 | `web_fetch` | 抓任意网页转结构化 Markdown（Tavily extract → Firecrawl 兜底） |
@@ -40,20 +40,20 @@
 - 自带工具不会把搜索结果**显式喂给模型**，Claude 经常仍走内部记忆，幻觉率高
 - 没有结构化信源回传，难以追溯
 
-本项目把这三件事都修好了，且**主模型走火山方舟 Ark（国内直连、无需代理）**，Tavily/Firecrawl/Gemini 走代理。
+本项目把这三件事都修好了，且**主模型走火山方舟 Ark（国内直连、无需代理）**，Tavily/Firecrawl/Gemini 走代理，SearXNG 默认直连。
 
 ---
 
 ## 工作原理
 
 ```
-你 → Claude Code → multsearch MCP → ┬─ Tavily + Firecrawl 找源 ──► LLM summarize   (web_search, Path A)
+你 → Claude Code → multsearch MCP → ┬─ Tavily + Firecrawl + SearXNG 找源 ──► LLM summarize   (web_search, Path A)
                                     ├─ Gemini + Google grounding                   (gemini_search, Path B)
                                     ├─ Tavily extract / Firecrawl scrape           (web_fetch)
                                     └─ Tavily map                                  (web_map)
 ```
 
-`web_search` 的文本模式流程：Tavily + Firecrawl **并行**抓信源 → 组装成编号信源文本 → 喂给 LLM（glm-5.2）让它**只依据信源**作答，每条事实带 `[n]` 引用。模型本身不联网，所以不会幻觉编造。信源以 Tavily/Firecrawl 的实际结果为准，模型若附了信源列表会被剥离。
+`web_search` 的文本模式流程：Tavily + Firecrawl + SearXNG **并行**抓信源 → 组装成编号信源文本 → 喂给 LLM（glm-5.2）让它**只依据信源**作答，每条事实带 `[n]` 引用。模型本身不联网，所以不会幻觉编造。信源以 Tavily/Firecrawl/SearXNG 的实际结果为准，模型若附了信源列表会被剥离。
 
 `gemini_search` 走 Gemini 原生 Google Search grounding，返回 grounded 答案 + Google 引用，遇 429/5xx 指数退避重试。
 
@@ -68,7 +68,7 @@
 把这一段直接发给 Claude Code：
 
 > 我本地有 `multsearch-mcp` 源码（路径：`<填绝对路径>`），请把它安装到我当前项目里（scope=project）。
-> 你需要先 `cd` 到我当前项目目录，然后通过下面这条命令完成安装。我会告诉你我的 Ark API Key（`ark-...` 开头），Tavily / Firecrawl / Gemini 都跳过：
+> 你需要先 `cd` 到我当前项目目录，然后通过下面这条命令完成安装。我会告诉你我的 Ark API Key（`ark-...` 开头），Tavily / Firecrawl / Gemini 都跳过（SearXNG 默认就启用，无需配置）：
 >
 > ```
 > uvx --from '<源码路径>[setup]' \
@@ -97,7 +97,7 @@ uvx --from '<源码路径>[setup]' multsearch-setup --package-spec <源码路径
 
 ## API Key 申请指南
 
-主 LLM Key 必需，其余可选。**最佳零成本组合 = Ark + Tavily + Gemini**，三家都有免费额度，全程不用绑卡。
+主 LLM Key 必需，其余可选。**最佳零成本组合 = Ark + Tavily + Gemini**，三家都有免费额度，全程不用绑卡。SearXNG 默认免费开启、无需 key，作为 web_search 第三路信源锦上添花。
 
 ### 1. 火山方舟 Ark（主 LLM，必需）
 
@@ -118,7 +118,7 @@ Ark 走国内直连，Tavily / Firecrawl / Gemini 走代理。
 | 免费额度 | **1,000 次 / 月**，无需绑卡 |
 | 用途 | `web_search` 找源 + `web_fetch` / `web_map` |
 
-不配 Tavily：`web_search` 退化为只用 Firecrawl 一路；`web_fetch` / `web_map` 不可用。
+不配 Tavily：`web_search` 退化为 Firecrawl + SearXNG 两路；`web_fetch` / `web_map` 不可用。
 
 ### 3. Firecrawl（可选）
 
@@ -135,6 +135,18 @@ Ark 走国内直连，Tavily / Firecrawl / Gemini 走代理。
 | 取 Key | https://aistudio.google.com/apikey（免费） |
 | 用途 | `gemini_search` 独立 Google 索引交叉验证 |
 | 注意 | Google API 在中国大陆需走代理（`HTTP_PROXY` / `HTTPS_PROXY`） |
+
+### 5. SearXNG（可选 · 第三路信源）
+
+| 项 | 说明 |
+| --- | --- |
+| 是什么 | 自建/公开的元搜索引擎，聚合 Google / Bing / DuckDuckGo 等多引擎结果 |
+| 默认地址 | `http://45.197.145.62:8081`（可用 `SEARXNG_URL` 覆盖，或写进 `~/.config/multsearch/config.json` 的 `searxng_url`） |
+| 用途 | `web_search` 第三路信源，与 Tavily/Firecrawl 并行采集 |
+| Key | 无需 API Key |
+| 引擎 | `SEARXNG_ENGINES` 默认 `google,bing,duckduckgo`（多引擎聚合，单引擎挂掉其他兜底） |
+| 代理 | 代码内 `trust_env=False` 直连，不走 `HTTP_PROXY` |
+| 注意 | 实例需在 `settings.yml` 开启 `json` 输出格式；实测该实例 google 引擎被限流返回空，故默认多引擎聚合 |
 
 ---
 
@@ -168,7 +180,7 @@ Ark 走国内直连，Tavily / Firecrawl / Gemini 走代理。
 }
 ```
 
-Claude Code 启动时读这个文件，按 stdio 协议拉起一个 Python 进程（本项目），通过 MCP 协议转发工具调用。`httpx` 默认 `trust_env=True`，会读 `HTTP_PROXY` / `NO_PROXY`，所以 Tavily/Firecrawl/Gemini 走代理、Ark 走直连。
+Claude Code 启动时读这个文件，按 stdio 协议拉起一个 Python 进程（本项目），通过 MCP 协议转发工具调用。`httpx` 默认 `trust_env=True`，会读 `HTTP_PROXY` / `NO_PROXY`，所以 Tavily/Firecrawl/Gemini 走代理、Ark 走直连；SearXNG 单独用 `trust_env=False` 直连。
 
 ---
 
@@ -205,7 +217,10 @@ Claude Code 启动时读这个文件，按 stdio 协议拉起一个 Python 进�
 | `FIRECRAWL_API_KEY` | — | 可选，`web_search` 找源 + `web_fetch` 兜底 |
 | `GEMINI_API_KEY` | — | 可选，`gemini_search` 第二路 |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini 模型 |
-| `HTTP_PROXY` / `HTTPS_PROXY` | — | 中国大陆访问 Tavily/Firecrawl/Gemini 需代理 |
+| `SEARXNG_URL` | `http://45.197.145.62:8081` | SearXNG 实例地址（第三路信源） |
+| `SEARXNG_ENGINES` | `google,bing,duckduckgo` | 逗号分隔的引擎列表 |
+| `MULT_SEARXNG_ENABLED` | `true` | 关闭则不采集 SearXNG 信源 |
+| `HTTP_PROXY` / `HTTPS_PROXY` | — | 中国大陆访问 Tavily/Firecrawl/Gemini 需代理（SearXNG 直连不受影响） |
 | `NO_PROXY` | — | 国内 API（`ark.cn-beijing.volces.com` 等）直连 |
 | `MULT_DEBUG` | `false` | 详细日志 |
 | `MULT_LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
@@ -243,7 +258,7 @@ A：99% 是 Claude Code 没重启。先 `claude mcp list` 看命令行是否能�
 A：`uv tool run --from <path>` 会缓存构建的 wheel。改源码后**bump `pyproject.toml` 的 `version`**（强制重建 wheel），或清 uv 缓存（`sdists-v9/path` + `archive-v0` 下本包目录），再 `/mcp` 重连。
 
 **Q：`web_search` 返回空 content？**
-A：多半是 Tavily/Firecrawl 没连上（代理没开 → HTTP 000）。代码里 `except Exception: return None` 静默兜底了。开代理（Clash `127.0.0.1:7890`），用 `get_config_info` 测连通性，或用 `dangerouslyDisableSandbox` 的 curl 直连 `api.tavily.com` 排查。
+A：多半是 Tavily/Firecrawl 没连上（代理没开 → HTTP 000）。代码里 `except Exception: return None` 静默兜底了；SearXNG 默认开启会兜底一路信源（走直连），若三路全空再开代理（Clash `127.0.0.1:7890`），用 `get_config_info` 测连通性，或用 `dangerouslyDisableSandbox` 的 curl 直连 `api.tavily.com` 排查。
 
 **Q：`gemini_search` 报失败？**
 A：Google API 必须走代理（不在 `NO_PROXY` 里），且 `GEMINI_API_KEY` 要设置。免费档 15 RPM，并发下可能 429，已内置退避重试。

@@ -93,3 +93,46 @@ def test_extra_results_to_sources_provider_tag():
 def test_extra_results_to_sources_none_inputs():
     assert _extra_results_to_sources(None, None) == []
     assert _extra_results_to_sources([], []) == []
+
+
+def test_build_source_context_with_searxng():
+    firecrawl = [{"title": "F1", "url": "https://f.com", "description": "d1"}]
+    tavily = [{"title": "T1", "url": "https://t.com", "content": "c1"}]
+    searxng = [{"title": "S1", "url": "https://s.com", "content": "sc1"}]
+    ctx = _build_source_context(tavily, firecrawl, searxng)
+    # firecrawl -> tavily -> searxng 编号续接
+    assert "[1] F1" in ctx
+    assert "[2] T1" in ctx
+    assert "[3] S1" in ctx
+    assert "URL: https://s.com" in ctx
+    assert "内容: sc1" in ctx
+
+
+def test_build_source_context_searxng_dedup_with_tavily():
+    # 同一 url 在 searxng 和 tavily 都出现，先到的 tavily 占位，searxng 跳过
+    tavily = [{"title": "T", "url": "https://dup.com", "content": "c"}]
+    searxng = [{"title": "S", "url": "https://dup.com", "content": "sc"}]
+    ctx = _build_source_context(tavily, None, searxng)
+    assert ctx.count("https://dup.com") == 1
+    assert "[2]" not in ctx
+
+
+def test_extra_results_to_sources_with_searxng():
+    firecrawl = [{"title": "F1", "url": "https://f.com", "description": "d1"}]
+    tavily = [{"title": "T1", "url": "https://t.com", "content": "c1"}]
+    searxng = [{"title": "S1", "url": "https://s.com", "content": "sc1"}]
+    sources = _extra_results_to_sources(tavily, firecrawl, searxng)
+    assert len(sources) == 3
+    assert sources[0]["provider"] == "firecrawl"
+    assert sources[1]["provider"] == "tavily"
+    assert sources[2]["provider"] == "searxng"
+    assert sources[2]["description"] == "sc1"
+
+
+def test_extra_results_to_sources_searxng_default_none():
+    # 第三参数默认 None，行为与旧版两参数调用一致
+    firecrawl = [{"title": "F1", "url": "https://f.com", "description": "d1"}]
+    tavily = [{"title": "T1", "url": "https://t.com", "content": "c1"}]
+    sources = _extra_results_to_sources(tavily, firecrawl)
+    assert len(sources) == 2
+    assert all(s["provider"] != "searxng" for s in sources)

@@ -101,6 +101,7 @@ async def _get_available_models_cached(api_url: str, api_key: str) -> list[str]:
 def _extra_results_to_sources(
     tavily_results: list[dict] | None,
     firecrawl_results: list[dict] | None,
+    searxng_results: list[dict] | None = None,
 ) -> list[dict]:
     sources: list[dict] = []
     seen: set[str] = set()
@@ -135,14 +136,30 @@ def _extra_results_to_sources(
                 item["description"] = content
             sources.append(item)
 
+    if searxng_results:
+        for r in searxng_results:
+            url = (r.get("url") or "").strip()
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            item: dict = {"url": url, "provider": "searxng"}
+            title = (r.get("title") or "").strip()
+            if title:
+                item["title"] = title
+            content = (r.get("content") or "").strip()
+            if content:
+                item["description"] = content
+            sources.append(item)
+
     return sources
 
 
 def _build_source_context(
     tavily_results: list[dict] | None,
     firecrawl_results: list[dict] | None,
+    searxng_results: list[dict] | None = None,
 ) -> str:
-    """把 Tavily/Firecrawl 结果组装成编号信源文本，供文本模式模型总结。"""
+    """把 Tavily/Firecrawl/SearXNG 结果组装成编号信源文本，供文本模式模型总结。"""
     blocks: list[str] = []
     idx = 1
     seen: set[str] = set()
@@ -164,6 +181,21 @@ def _build_source_context(
 
     if tavily_results:
         for r in tavily_results:
+            url = (r.get("url") or "").strip()
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            title = (r.get("title") or "").strip()
+            content = (r.get("content") or "").strip()
+            lines = [f"[{idx}] {title}".rstrip()]
+            lines.append(f"URL: {url}")
+            if content:
+                lines.append(f"内容: {content}")
+            blocks.append("\n".join(lines))
+            idx += 1
+
+    if searxng_results:
+        for r in searxng_results:
             url = (r.get("url") or "").strip()
             if not url or url in seen:
                 continue
@@ -233,24 +265,37 @@ async def web_search(
     # 计算信源配额
     has_tavily = bool(config.tavily_api_key)
     has_firecrawl = bool(config.firecrawl_api_key)
+    has_searxng = config.searxng_enabled and bool(config.searxng_api_url)
 
     firecrawl_count = 0
     tavily_count = 0
+    searxng_count = 0
     if extra_sources > 0:
-        if has_firecrawl and has_tavily:
-            # 50/50 分流（Tavily 免费额度 1000/月 > Firecrawl 500/月，Tavily 取多）
-            firecrawl_count = extra_sources // 2
-            tavily_count = extra_sources - firecrawl_count
-        elif has_firecrawl:
-            firecrawl_count = extra_sources
-        elif has_tavily:
-            tavily_count = extra_sources
+        # 用户指定总数，在所有可用源间均分（整除），余数依次补给 searxng（免费，多承担）
+        available = [name for name, ok in (
+            ("searxng", has_searxng),
+            ("firecrawl", has_firecrawl),
+            ("tavily", has_tavily),
+        ) if ok]
+        if available:
+            base = extra_sources // len(available)
+            rem = extra_sources % len(available)
+            for i, name in enumerate(available):
+                cnt = base + (1 if i < rem else 0)
+                if name == "searxng":
+                    searxng_count = cnt
+                elif name == "firecrawl":
+                    firecrawl_count = cnt
+                elif name == "tavily":
+                    tavily_count = cnt
     else:
-        # 默认配额，保证总有信源可总结
+        # 默认配额，保证总有信源可总结；SearXNG 免费且多引擎容错，多给
         if has_tavily:
             tavily_count = 8
         if has_firecrawl:
             firecrawl_count = 6
+        if has_searxng:
+            searxng_count = 8
 
     async def _safe_tavily() -> list[dict] | None:
         try:
@@ -266,33 +311,46 @@ async def web_search(
         except Exception:
             return None
 
+    async def _safe_searxng() -> list[dict] | None:
+        try:
+            if searxng_count:
+                return await _call_searxng_search(query, searxng_count)
+        except Exception:
+            return None
+
     # 文本模式：先并行抓信源，再让模型基于信源总结
     src_coros: list = []
     if tavily_count > 0:
         src_coros.append(_safe_tavily())
     if firecrawl_count > 0:
         src_coros.append(_safe_firecrawl())
+    if searxng_count > 0:
+        src_coros.append(_safe_searxng())
     src_gathered = await asyncio.gather(*src_coros) if src_coros else []
 
     tavily_results: list[dict] | None = None
     firecrawl_results: list[dict] | None = None
+    searxng_results: list[dict] | None = None
     sidx = 0
     if tavily_count > 0:
         tavily_results = src_gathered[sidx]
         sidx += 1
     if firecrawl_count > 0:
         firecrawl_results = src_gathered[sidx]
+        sidx += 1
+    if searxng_count > 0:
+        searxng_results = src_gathered[sidx]
 
-    all_sources = _extra_results_to_sources(tavily_results, firecrawl_results)
+    all_sources = _extra_results_to_sources(tavily_results, firecrawl_results, searxng_results)
 
-    context = _build_source_context(tavily_results, firecrawl_results)
+    context = _build_source_context(tavily_results, firecrawl_results, searxng_results)
     llm_result = ""
     if context:
         try:
             llm_result = await llm_provider.summarize(query, context)
         except Exception:
             llm_result = ""
-    # 模型可能附了信源列表，剥离；信源以 Tavily/Firecrawl 实际结果为准
+    # 模型可能附了信源列表，剥离；信源以 Tavily/Firecrawl/SearXNG 实际结果为准
     answer, _ = split_answer_and_sources(llm_result)
     if not answer:
         answer = llm_result.strip()
@@ -424,6 +482,48 @@ async def _call_firecrawl_search(query: str, limit: int = 14) -> list[dict] | No
                 {"title": r.get("title", ""), "url": r.get("url", ""), "description": r.get("description", "")}
                 for r in results
             ] if results else None
+    except Exception:
+        return None
+
+
+async def _call_searxng_search(query: str, max_results: int = 8) -> list[dict] | None:
+    """调用 SearXNG 元搜索（默认 google+bing+duckduckgo 聚合），返回统一结构信源。
+
+    SearXNG 为自建/公网实例，默认直连（trust_env=False 不走 HTTP_PROXY）；
+    实例需在 settings.yml 开启 json 输出格式。返回字段对齐 Tavily（title/url/content）。
+    """
+    import httpx
+    if not config.searxng_enabled or not config.searxng_api_url:
+        return None
+    endpoint = f"{config.searxng_api_url.rstrip('/')}/search"
+    params = {
+        "q": query,
+        "format": "json",
+        "engines": config.searxng_engines,
+        "language": "auto",
+        "safesearch": 0,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=90.0, trust_env=False) as client:
+            response = await client.get(
+                endpoint,
+                params=params,
+                headers={"Accept": "application/json"},
+            )
+            response.raise_for_status()
+            data = response.json()
+        results = data.get("results", []) or []
+        out: list[dict] = []
+        for r in results[:max_results]:
+            url = (r.get("url") or "").strip()
+            if not url:
+                continue
+            out.append({
+                "title": (r.get("title") or "").strip(),
+                "url": url,
+                "content": (r.get("content") or "").strip(),
+            })
+        return out or None
     except Exception:
         return None
 

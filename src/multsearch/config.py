@@ -158,6 +158,29 @@ class Config:
     def firecrawl_api_key(self) -> Optional[str]:
         return _env("FIRECRAWL_API_KEY")
 
+    # ── SearXNG (自建元搜索引擎, 聚合 google/bing/duckduckgo) ──────────
+
+    @property
+    def searxng_enabled(self) -> bool:
+        return _bool("MULT_SEARXNG_ENABLED", "SEARXNG_ENABLED", default=True)
+
+    @property
+    def searxng_api_url(self) -> str:
+        """SearXNG 实例地址。优先级: env > config.json > 默认实例。"""
+        url = (
+            _env("SEARXNG_URL", "MULT_SEARXNG_URL")
+            or self._load_config_file().get("searxng_url")
+        )
+        return (url or "http://45.197.145.62:8081").rstrip("/")
+
+    @property
+    def searxng_engines(self) -> str:
+        """逗号分隔的引擎列表。默认多引擎聚合,因单 google 易被限流返回空。"""
+        return (
+            _env("SEARXNG_ENGINES", "MULT_SEARXNG_ENGINES", default="google,bing,duckduckgo")
+            or "google,bing,duckduckgo"
+        )
+
     # ── Gemini (Google Search grounding) ────────────────────────────────
 
     @property
@@ -256,6 +279,9 @@ class Config:
             "TAVILY_API_KEY": self._mask_api_key(self.tavily_api_key),
             "FIRECRAWL_API_URL": self.firecrawl_api_url,
             "FIRECRAWL_API_KEY": self._mask_api_key(self.firecrawl_api_key),
+            "SEARXNG_URL": self.searxng_api_url,
+            "SEARXNG_ENABLED": self.searxng_enabled,
+            "SEARXNG_ENGINES": self.searxng_engines,
             "config_status": config_status,
         }
 
