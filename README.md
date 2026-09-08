@@ -1,8 +1,8 @@
 # multsearch-mcp
 
-**Claude Code 双路联网搜索 MCP**
+**Claude Code 多路联网搜索 MCP**
 
-两条独立搜索路径交叉验证 · 信源显式回传 · 国内可用
+两套搜索范式交叉验证 · 信源显式回传 · 国内可用
 
 [![Python](https://img.shields.io/badge/python-3.10+-3776ab.svg)](https://www.python.org/downloads/) [![MCP](https://img.shields.io/badge/MCP-server-7e57c2.svg)](https://modelcontextprotocol.io/)
 [![M8ven Live Monitored](https://m8ven.ai/badge/mcp/liujp2015-multsearch-mcp-y5z1mk)](https://m8ven.ai/mcp/liujp2015-multsearch-mcp-y5z1mk)
@@ -13,14 +13,14 @@
 
 一个为 Claude Code 设计的本地 MCP 服务器。装上之后，Claude 回答前会**真的去网上查**，并把信源显式带回来，而不是凭印象瞎答。
 
-核心是**两条独立的搜索路径**，互相交叉验证：
+核心是**两套搜索范式**，互相交叉验证：
 
-| 路径 | 工具 | 索引来源 | 模型 |
+| 范式 | 工具 | 信源 | 模型 |
 | --- | --- | --- | --- |
-| **Path A** | `web_search` | Tavily + Firecrawl + SearXNG 找源 | LLM 基于信源 summarize（默认火山方舟 Ark `glm-5.2`） |
-| **Path B** | `gemini_search` | Google Search grounding | Gemini 2.5 Flash |
+| **Path A · 信源聚合** | `web_search` | Tavily + Firecrawl + SearXNG 三路并行找源 | LLM 基于信源 summarize（默认火山方舟 Ark `glm-5.2`） |
+| **Path B · 原生 grounding** | `gemini_search` | Google Search grounding | Gemini 2.5 Flash |
 
-两条路用的是**完全不同的索引**（Tavily / Firecrawl / SearXNG vs Google），适合对关键事实做双路交叉验证。除此之外还有网页抓取、站点扫描、信源回查、配置诊断等辅助工具。
+两套范式用的是**完全不同的索引**（Tavily / Firecrawl / SearXNG vs Google），适合对关键事实做交叉验证。除此之外还有网页抓取、站点扫描、信源回查、配置诊断等辅助工具。
 
 ## 提供的工具
 
@@ -288,4 +288,4 @@ A：Google API 必须走代理（不在 `NO_PROXY` 里），且 `GEMINI_API_KEY`
 A：可以。`MULT_PROVIDER=custom` + 自填 `MULT_API_URL` / `MULT_MODEL` 即可（如 DeepSeek、智谱、内网网关等）。
 
 **Q：为什么没有规划 / 任务拆解类工具？**
-A：早期版本有一套 6 阶段搜索规划状态机，实际使用中调用方很少走，维护成本高，已移除以聚焦双路搜索内核。`web_search` 现在是直接的「找源 → 总结」流程，带同 query + model 的 LRU 响应缓存。
+A：早期版本有一套 6 阶段搜索规划状态机，实际使用中调用方很少走，维护成本高，已移除以聚焦两套搜索范式（Path A 多源聚合 + Path B Gemini grounding）。`web_search` 现在是直接的「找源 → 总结」流程，带同 query + model 的 LRU 响应缓存。
