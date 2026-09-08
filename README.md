@@ -7,7 +7,7 @@
 两条独立搜索路径交叉验证 · 信源显式回传 · 国内可用
 
 [![Python](https://img.shields.io/badge/python-3.10+-3776ab.svg)](https://www.python.org/downloads/) [![MCP](https://img.shields.io/badge/MCP-server-7e57c2.svg)](https://modelcontextprotocol.io/)
-[![M8ven Score](https://m8ven.ai/badge/mcp/liujp2015-multsearch-mcp-y5z1mk)](https://m8ven.ai/mcp/liujp2015-multsearch-mcp-y5z1mk)
+[![M8ven Live Monitored](https://m8ven.ai/badge/mcp/liujp2015-multsearch-mcp-y5z1mk)](https://m8ven.ai/mcp/liujp2015-multsearch-mcp-y5z1mk)
 </div>
 
 ---
